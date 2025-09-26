@@ -178,31 +178,25 @@ app.post('/api/auth/register', async (req, res) => {
   }
 });
 
-// User Login (Firebase handles this on frontend, this is for backend verification)
+// User Login (Firebase handles authentication on frontend, backend verifies idToken)
 app.post('/api/auth/login', async (req, res) => {
   try {
-    const { idToken, email, password } = req.body;
+    const { idToken } = req.body;
 
-    let uid, email_verified, userData;
-
-    if (idToken) {
-      // Verify the token
-      const decodedToken = await auth.verifyIdToken(idToken);
-      uid = decodedToken.uid;
-      email_verified = decodedToken.email_verified;
-    } else if (email && password) {
-      // For development, assume password is verified on client, just get user by email
-      const userRecord = await auth.getUserByEmail(email);
-      uid = userRecord.uid;
-      email_verified = userRecord.emailVerified;
-    } else {
-      return res.status(400).json({ error: 'ID token or email/password required' });
+    if (!idToken) {
+      return res.status(400).json({ error: 'ID token required' });
     }
+
+    // Verify the token
+    const decodedToken = await auth.verifyIdToken(idToken);
+    const uid = decodedToken.uid;
+    const email_verified = decodedToken.email_verified;
 
     // Get user data from database
     const userRef = db.ref(`users/${uid}`);
     const userSnapshot = await userRef.once('value');
 
+    let userData;
     if (!userSnapshot.exists()) {
       // Create user in database if not exists
       const userRecord = await auth.getUser(uid);
@@ -221,7 +215,7 @@ app.post('/api/auth/login', async (req, res) => {
     const customToken = jwt.sign(
       {
         uid: uid,
-        email: email || userData.email,
+        email: decodedToken.email,
         email_verified: email_verified
       },
       JWT_SECRET,
@@ -230,7 +224,7 @@ app.post('/api/auth/login', async (req, res) => {
 
     res.json({
       uid: uid,
-      email: email || userData.email,
+      email: decodedToken.email,
       email_verified: email_verified,
       customToken: customToken,
       user: { ...userData, role: userData.role || 'user' }
